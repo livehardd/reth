@@ -123,4 +123,33 @@ mod tests {
 
         assert!(cache.get(&header.hash()).is_none());
     }
+
+    /// Test that duplicate insert attempts don't corrupt hit_count
+    /// 
+    /// This verifies the fix: using peek() instead of get() for existence checks
+    /// prevents duplicate insert attempts from incorrectly incrementing hit_count.
+    #[test]
+    fn test_duplicate_insert_does_not_corrupt_hit_count() {
+        let mut cache = InvalidHeaderCache::new(10);
+        let header = Header::default();
+        let header = SealedHeader::seal_slow(header);
+        let block = header.block_with_parent();
+        
+        // First insert
+        cache.insert(block);
+        assert_eq!(cache.headers.peek(&header.hash()).unwrap().hit_count, 0);
+        
+        // Simulate 200 duplicate insert attempts (e.g., multiple peers sending same invalid block)
+        for _ in 0..200 {
+            cache.insert(block);
+        }
+        
+        // Verify: hit_count should still be 0 (using peek() for existence check)
+        let entry = cache.headers.peek(&header.hash()).unwrap();
+        assert_eq!(entry.hit_count, 0, "Duplicate inserts should not increment hit_count");
+        
+        // Now actually use get() - this SHOULD increment
+        assert!(cache.get(&header.hash()).is_some());
+        assert_eq!(cache.headers.peek(&header.hash()).unwrap().hit_count, 1);
+    }
 }
